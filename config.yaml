@@ -1,0 +1,37 @@
+# capture source
+source:
+  type: display            # display | window | app
+  id: primary              # "primary", display UUID, window ID, or bundle ID
+
+# video format
+video:
+  width: 2560              # output width in pixels
+  height: 1440             # output height in pixels
+  fps: 30                  # frames per second
+  codec: h264              # h264 | hevc
+  bitrate: 24000000        # bits per second (24 Mbps)
+
+# audio (optional)
+audio:
+  system: true             # capture system audio if configured
+  microphone: true         # capture default input
+  bitrate: 128000          # AAC audio bitrate in bps
+
+# output file
+output:
+  path: "~/yolosr_recordings/capture.mp4" # prefer MP4 for Windows compatibility
+  container: mp4           # mp4 | mov
+
+# TODO: file size limits and notifications (not yet implemented)
+limits:
+  max_file_size_mb: 500           # maximum file size in megabytes
+  warning_threshold_percent: 90   # warn when reaching this % of max size
+
+# TODO: notifications (not yet implemented)
+notifications:
+  enable_notification: true
+  warning_sound: "/System/Library/Sounds/Tink.aiff"
+  stop_sound: "/System/Library/Sounds/Sosumi.aiff"
+
+# preset for convenience (optional)
+preset: standard           # low | standard | high

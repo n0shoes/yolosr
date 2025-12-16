@@ -1,0 +1,32 @@
+{
+  "source": {
+    "type": "display",
+    "id": "primary"
+  },
+  "video": {
+    "width": 2560,
+    "height": 1440,
+    "fps": 30,
+    "codec": "h264",
+    "bitrate": 24000000
+  },
+  "audio": {
+    "system": false,
+    "microphone": true,
+    "bitrate": 128000
+  },
+  "output": {
+    "path": "~/yolosr_recordings/capture.mp4",
+    "container": "mp4"
+  },
+  "limits": {
+    "max_file_size_mb": 500,
+    "warning_threshold_percent": 75
+  },
+  "notifications": {
+    "enable_notification": true,
+    "warning_sound": "/System/Library/Sounds/Tink.aiff",
+    "stop_sound": "/System/Library/Sounds/Sosumi.aiff"
+  },
+  "preset": "standard"
+}

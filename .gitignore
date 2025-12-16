@@ -1,0 +1,35 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+
+# Build artifacts
+*.o
+*.dSYM/
+*.ipa
+*.app
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Recordings output (user data)
+*.mp4
+*.mov
