@@ -1,60 +1,94 @@
-# YOLOSR-Swift Implementation Tasks
+# CLI UX Improvements - Nice to Have
 
-## Project Setup
-- [x] Create Package.swift with proper platform and dependencies
-- [x] Create Sources/screencap-cli directory structure
-- [x] Create example config.yaml file
-- [x] Create build.sh and run.sh scripts
+## Overview
+Improve the terminal output experience with better formatting, colors, and real-time status updates.
 
-## Core Implementation
+## Features
 
-### Config Layer
-- [x] Implement Config.swift with all config structs (SourceConfig, VideoConfig, AudioConfig, OutputConfig, AppConfig)
-- [x] Implement ConfigLoader.load(from:) with JSON support
-- [ ] Optional: Add YAML parsing support
+### 1. ANSI Color Output
+Add color to terminal output for better readability:
+- Green: Success messages (✓)
+- Yellow: Warnings (⚠️)
+- Red: Errors (❌)
+- Cyan: Status/info messages
+- Bold: Important values (file sizes, frame counts)
 
-### Preset Resolution
-- [x] Implement PresetResolver.resolve(config:) to merge presets with explicit config
-- [x] Define preset constants (low, standard, high)
-- [x] Handle override logic (explicit fields override preset)
+Consider a `--no-color` flag for piping/logging.
 
-### Capture Session - Core
-- [x] Implement setupWriter() for AVAssetWriter configuration
-- [x] Implement setupStream() for SCStream configuration
-- [x] Implement awaitShareableContent() to fetch available sources
-- [x] Implement resolveSource(from:) to map config.source to SCContentFilter
-  - [x] Handle "primary" display
-  - [x] Handle specific display by UUID
-  - [x] Handle window by ID
-  - [x] Handle app by bundle ID
+### 2. Single-Line Updating Status
+Instead of printing a new line every second for file size, use terminal escape codes to update a single line in place:
 
-### Capture Session - Stream Handling
-- [x] Implement SCStreamDelegate conformance
-- [x] Implement SCStreamOutput.stream(_:didOutputSampleBuffer:of:) for video
-- [x] Implement audio sample buffer handling (if audio enabled)
+```
+Recording: 00:01:23 | 12.4 MB / 500 MB | Frames: 2,847
+```
 
-### Lifecycle Management
-- [x] Implement start(completion:) method
-- [x] Implement stop(completion:) method with proper cleanup
-- [x] Add signal handling (SIGINT/SIGTERM) for graceful shutdown
-- [x] Replace 60-second timer with proper stop mechanism
+Use `\r` (carriage return) or ANSI escape `\033[2K` to clear/update the line.
 
-### Main Entry Point
-- [x] Implement main.swift argument parsing
-- [x] Wire up config loading and CaptureSession initialization
-- [x] Add error handling and user feedback
+### 3. Structured Startup Summary
+Print a clean summary box on startup:
 
-## Testing & Polish
-- [ ] Test with display capture
-- [ ] Test with window capture
-- [ ] Test with app capture
-- [ ] Test MP4 output (Windows compatibility)
-- [ ] Test MOV output
-- [ ] Test with audio enabled
-- [ ] Test preset configurations (low, standard, high)
-- [ ] Verify output file playback
+```
+┌─────────────────────────────────────────┐
+│ yolosr-swift Screen Recorder            │
+├─────────────────────────────────────────┤
+│ Source:    Display (Primary)            │
+│ Resolution: 2560x1440 @ 30fps           │
+│ Codec:     H.264 @ 24 Mbps              │
+│ Audio:     System ✓  Mic ✓              │
+│ Limit:     500 MB (warn at 75%)         │
+│ Output:    ~/recordings/capture.mp4     │
+└─────────────────────────────────────────┘
+```
 
-## Documentation
-- [ ] Add usage examples to README
-- [ ] Document config options
-- [ ] Add troubleshooting section
+### 4. Recording Timer
+Show elapsed time in HH:MM:SS format, updating in place.
+
+### 5. Progress Bar for File Size
+Visual progress toward the limit:
+
+```
+[████████░░░░░░░░░░░░] 42% (210 MB / 500 MB)
+```
+
+### 6. Final Summary
+On completion, show a summary:
+
+```
+Recording Complete
+──────────────────
+Duration:    00:05:23
+File Size:   234.5 MB
+Frames:      9,690 video, 15,234 audio
+Output:      /path/to/file.mp4
+```
+
+## Implementation Notes
+
+### ANSI Escape Codes Reference
+```swift
+let red = "\u{001B}[31m"
+let green = "\u{001B}[32m"
+let yellow = "\u{001B}[33m"
+let cyan = "\u{001B}[36m"
+let bold = "\u{001B}[1m"
+let reset = "\u{001B}[0m"
+
+// Clear line and return cursor
+let clearLine = "\u{001B}[2K\r"
+```
+
+### Detect TTY
+Only use colors/updates if stdout is a terminal:
+```swift
+import Darwin
+let isTTY = isatty(STDOUT_FILENO) != 0
+```
+
+### Update In Place
+```swift
+print("\r\u{001B}[2KRecording: \(elapsed) | \(size) MB", terminator: "")
+fflush(stdout)
+```
+
+## Priority
+Low - cosmetic improvements. Core functionality is complete.
