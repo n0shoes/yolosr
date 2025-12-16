@@ -5,7 +5,7 @@ import AVFoundation
 let args = CommandLine.arguments
 guard let configIndex = args.firstIndex(of: "--config"),
       args.count > configIndex + 1 else {
-    fputs("Usage: screencap-cli --config /path/to/config.yaml\n", stderr)
+    fputs("Usage: screencap-cli --config /path/to/config.json\n", stderr)
     exit(1)
 }
 
