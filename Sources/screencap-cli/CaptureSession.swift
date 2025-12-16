@@ -34,7 +34,8 @@ final class CaptureSession: NSObject {
     private var assetWriter: AVAssetWriter!
     private var videoInput: AVAssetWriterInput!
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor!
-    private var audioInput: AVAssetWriterInput?
+    private var systemAudioInput: AVAssetWriterInput?
+    private var microphoneInput: AVAssetWriterInput?
     private(set) var outputURL: URL!
 
     private var fileSizeMonitorTimer: Timer?
@@ -100,16 +101,11 @@ final class CaptureSession: NSObject {
             print("  - Microphone samples: \(self.microphoneSampleCount)")
             print("AVAssetWriter status before finish: \(self.assetWriter.status.rawValue)")
 
-            if self.audioSampleCount == 0 && self.audioInput != nil {
-                print("⚠️  No audio samples received - audio may require additional permissions")
-                print("   Check System Settings > Privacy & Security > Microphone")
-            }
-
-            if self.systemAudioSampleCount == 0 && self.config.audio?.system == true {
+            if self.systemAudioSampleCount == 0 && self.systemAudioInput != nil {
                 print("⚠️  No system audio samples - check if audio is playing during capture")
             }
 
-            if self.microphoneSampleCount == 0 && self.config.audio?.microphone == true {
+            if self.microphoneSampleCount == 0 && self.microphoneInput != nil {
                 print("⚠️  No microphone samples - verify microphone permission in System Settings")
             }
 
@@ -123,7 +119,8 @@ final class CaptureSession: NSObject {
             }
 
             self.videoInput.markAsFinished()
-            self.audioInput?.markAsFinished()
+            self.systemAudioInput?.markAsFinished()
+            self.microphoneInput?.markAsFinished()
 
             self.assetWriter.finishWriting {
                 print("AVAssetWriter status after finish: \(self.assetWriter.status.rawValue)")
@@ -246,8 +243,9 @@ final class CaptureSession: NSObject {
 
         assetWriter.add(videoInput)
 
-        if let audioCfg = config.audio, (audioCfg.system == true || audioCfg.microphone == true) {
-            // Simple audio settings - let AVFoundation handle the conversion from PCM
+        // Create separate audio inputs for system audio and microphone
+        // This allows both to be captured simultaneously without format conflicts
+        if let audioCfg = config.audio {
             let audioSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 48_000,
@@ -255,15 +253,30 @@ final class CaptureSession: NSObject {
                 AVEncoderBitRateKey: audioCfg.bitrate ?? 128_000
             ]
 
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
-            input.expectsMediaDataInRealTime = true
+            // System audio input
+            if audioCfg.system == true {
+                let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                input.expectsMediaDataInRealTime = true
+                if assetWriter.canAdd(input) {
+                    assetWriter.add(input)
+                    systemAudioInput = input
+                    print("✓ System audio input added to AVAssetWriter")
+                } else {
+                    print("⚠️  Failed to add system audio input to AVAssetWriter")
+                }
+            }
 
-            if assetWriter.canAdd(input) {
-                assetWriter.add(input)
-                audioInput = input
-                print("✓ Audio input added to AVAssetWriter")
-            } else {
-                print("⚠️  Failed to add audio input to AVAssetWriter")
+            // Microphone input (separate track)
+            if audioCfg.microphone == true {
+                let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+                input.expectsMediaDataInRealTime = true
+                if assetWriter.canAdd(input) {
+                    assetWriter.add(input)
+                    microphoneInput = input
+                    print("✓ Microphone input added to AVAssetWriter")
+                } else {
+                    print("⚠️  Failed to add microphone input to AVAssetWriter")
+                }
             }
         }
     }
@@ -489,15 +502,15 @@ extension CaptureSession: SCStreamOutput {
                 }
             }
         case .audio:
-            guard let audioInput = audioInput,
-                  audioInput.isReadyForMoreMediaData else { return }
+            guard let systemAudioInput = systemAudioInput,
+                  systemAudioInput.isReadyForMoreMediaData else { return }
 
             // Don't append audio until the writer session has started
             guard firstFrameTime != nil else {
                 return
             }
 
-            audioInput.append(sampleBuffer)
+            systemAudioInput.append(sampleBuffer)
             audioSampleCount += 1
             systemAudioSampleCount += 1
 
@@ -506,15 +519,15 @@ extension CaptureSession: SCStreamOutput {
             }
 
         case .microphone:
-            guard let audioInput = audioInput,
-                  audioInput.isReadyForMoreMediaData else { return }
+            guard let microphoneInput = microphoneInput,
+                  microphoneInput.isReadyForMoreMediaData else { return }
 
             // Don't append audio until the writer session has started
             guard firstFrameTime != nil else {
                 return
             }
 
-            audioInput.append(sampleBuffer)
+            microphoneInput.append(sampleBuffer)
             audioSampleCount += 1
             microphoneSampleCount += 1
 

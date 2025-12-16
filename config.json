@@ -11,7 +11,7 @@
     "bitrate": 24000000
   },
   "audio": {
-    "system": false,
+    "system": true,
     "microphone": true,
     "bitrate": 128000
   },

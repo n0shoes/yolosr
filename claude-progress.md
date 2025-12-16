@@ -13,3 +13,15 @@
 4. Added separate tracking for system audio vs microphone samples for better diagnostics
 
 **Result**: Microphone capture now works correctly. Test run captured 1244 microphone samples successfully.
+
+## 2025-12-16 15:10 - Fixed Audio Format Conflict with Dual Audio Sources
+
+**Problem**: Enabling both `system: true` and `microphone: true` caused AVAssetWriter to fail with error -12737 (format mismatch).
+
+**Root Cause**: Both system audio and microphone samples were being written to a single `AVAssetWriterInput`. The two sources have different audio formats, causing the writer to fail when samples from both arrived.
+
+**Fix**: Created separate audio inputs:
+- `systemAudioInput` - receives `.audio` stream samples
+- `microphoneInput` - receives `.microphone` stream samples
+
+**Result**: Both audio sources can now be captured simultaneously. Output video contains two audio tracks (common for screen recordings - allows independent volume adjustment in post-production).
