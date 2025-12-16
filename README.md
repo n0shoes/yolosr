@@ -62,7 +62,7 @@ mkdir -p ~/yolosr_recordings
 
 ## Configuration
 
-Create a JSON or YAML config file:
+Create a JSON config file:
 
 ```json
 {
