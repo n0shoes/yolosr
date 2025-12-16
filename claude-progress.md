@@ -104,3 +104,20 @@
 - `Sources/screencap-cli/CaptureSession.swift` - Integrated colored output and status updates
 
 **Build**: `./build.sh` - successful
+
+## 2025-12-17 00:45 - Fixed Intermittent AVAssetWriter Failures
+
+**Problem**: Intermittent AVAssetWriter failures during recording, causing video finalization to fail with error -16341. Videos would be corrupted or incomplete.
+
+**Root Cause**: `movieFragmentInterval` was set to 10 seconds to enable file size monitoring during recording. However, fragment writes were conflicting with sample appends, causing AVAssetWriter to enter a failed state.
+
+**Investigation**:
+- Tried serial queue for all stream outputs - didn't help
+- Tried retry logic with backoff - corrupted timing metadata
+- Tried waiting for writer status before append - still failed
+- Notification sounds made it worse (audio system contention) but weren't the root cause
+- Discovered file size monitoring works WITHOUT `movieFragmentInterval`
+
+**Fix**: Removed `movieFragmentInterval` entirely. File size monitoring still works correctly, and all AVAssetWriter failures are resolved.
+
+**Result**: Stable recording with no finalization errors. Tested with system audio + microphone, notification sounds, and concurrent audio playback.
