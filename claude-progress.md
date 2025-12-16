@@ -40,3 +40,15 @@
 **Conclusion**: The crash is in Swift 6's runtime itself, not our concurrency code. Signal handlers with DispatchSource appear incompatible with Swift 6's concurrency runtime. Staying on Swift 5.10 - the `#available` checks handle macOS 15 features at runtime anyway.
 
 **Decision**: Discarded feature branch. Isolation queue adds complexity without benefit on Swift 5.10.
+
+## 2025-12-16 20:45 - Fixed File Size Monitoring
+
+**Problem**: File size monitoring wasn't working - AVAssetWriter buffers all data until finalization, so the file showed 0 bytes on disk during recording.
+
+**Fixes**:
+1. Added `movieFragmentInterval = 10 seconds` to write data to disk periodically
+2. Replaced `Timer` with `DispatchSourceTimer` (Timer needs RunLoop which is blocked by group.wait())
+3. Monitor actual file size on disk instead of estimating from bitrate
+4. Play warning/stop sounds asynchronously to avoid blocking the writer
+
+**Result**: File size monitoring now works correctly - warns at configured threshold (e.g., 75%) and auto-stops at max size with clean exit.

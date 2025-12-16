@@ -108,6 +108,30 @@ Explicit video settings override preset values.
 
 When both system audio and microphone are enabled, the output video contains two separate audio tracks. This allows independent volume adjustment in post-production.
 
+### File Size Limits and Auto-Stop
+
+One of the key features is automatic file size monitoring with warning sounds and auto-stop. This prevents recordings from consuming too much disk space.
+
+```json
+{
+  "limits": {
+    "max_file_size_mb": 500,
+    "warning_threshold_percent": 75
+  },
+  "notifications": {
+    "enable_notification": true,
+    "warning_sound": "/System/Library/Sounds/Tink.aiff",
+    "stop_sound": "/System/Library/Sounds/Sosumi.aiff"
+  }
+}
+```
+
+- **max_file_size_mb**: Maximum file size in megabytes. Recording auto-stops when reached.
+- **warning_threshold_percent**: Plays a warning sound when this percentage of the limit is reached.
+- **warning_sound / stop_sound**: Paths to sound files played at warning and auto-stop (use macOS system sounds or custom files).
+
+The file size is monitored in real-time using fragmented MP4 writing, so the actual file on disk is updated every ~10 seconds during recording.
+
 ## Permissions
 
 On first run, macOS will prompt for Screen Recording permission. Grant access in System Settings > Privacy & Security > Screen Recording.
