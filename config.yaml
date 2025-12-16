@@ -1,4 +1,4 @@
-# capture source
+# capture source - THIS FILE IS NOT USED. Use the json config.
 source:
   type: display            # display | window | app
   id: primary              # "primary", display UUID, window ID, or bundle ID
