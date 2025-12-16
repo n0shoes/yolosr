@@ -257,9 +257,6 @@ final class CaptureSession: NSObject {
 
         assetWriter = try AVAssetWriter(outputURL: url, fileType: fileType)
 
-        // Write movie fragments every 10 seconds so file size is updated on disk
-        assetWriter.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 1)
-
         // Resolve preset + video config
         let resolved = PresetResolver.resolve(config: config)
 
