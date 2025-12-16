@@ -52,3 +52,55 @@
 4. Play warning/stop sounds asynchronously to avoid blocking the writer
 
 **Result**: File size monitoring now works correctly - warns at configured threshold (e.g., 75%) and auto-stops at max size with clean exit.
+
+## 2025-12-16 21:30 - CLI UX Improvements
+
+**Features Implemented** (from task.md):
+
+1. **ANSI Color Output**: Added colored terminal output for better readability:
+   - Green: Success messages (checkmarks)
+   - Yellow: Warnings
+   - Red: Errors
+   - Cyan: Status/info messages
+   - Bold: Important values
+   - Added `--no-color` CLI flag for piping/logging
+   - Auto-detects TTY to disable colors when not in terminal
+
+2. **Structured Startup Summary Box**: Shows clean configuration on startup:
+   ```
+   ┌───────────────────────────────────────────┐
+   │ yolosr-swift Screen Recorder              │
+   ├───────────────────────────────────────────┤
+   │ Source:    Display (Primary)              │
+   │ Resolution: 1920x1080 @ 30fps             │
+   │ Codec:     H.264 @ 4 Mbps                 │
+   │ Audio:     System ✓  Mic ✓                │
+   │ Limit:     500 MB (warn at 75%)           │
+   │ Output:    ~/recordings/capture.mp4       │
+   └───────────────────────────────────────────┘
+   ```
+
+3. **Single-Line Updating Status**: Real-time recording status with timer and progress bar:
+   ```
+   Recording: 00:01:23 | 12.4 MB / 500 MB | [████████░░░░░░░] 42% | Frames: 2,847
+   ```
+   Uses `\r` and ANSI escape codes to update in place (TTY only)
+
+4. **Final Summary**: Clean summary on recording completion:
+   ```
+   Recording Complete
+   ──────────────────────
+   Duration:    00:05:23
+   File Size:   234.5 MB
+   Frames:      9,690 video, 15,234 audio
+   Output:      /path/to/file.mp4
+   ```
+
+**New Files**:
+- `Sources/screencap-cli/TerminalUI.swift` - Terminal UI utility class
+
+**Modified Files**:
+- `Sources/screencap-cli/main.swift` - Added startup summary, --no-color flag
+- `Sources/screencap-cli/CaptureSession.swift` - Integrated colored output and status updates
+
+**Build**: `./build.sh` - successful

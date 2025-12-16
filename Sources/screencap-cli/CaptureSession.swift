@@ -46,6 +46,8 @@ final class CaptureSession: NSObject {
     private var systemAudioSampleCount = 0
     private var microphoneSampleCount = 0
     private var firstFrameTime: CMTime?
+    private var lastStatusUpdateTime: Date?
+    private let ui = TerminalUI.shared
 
     init(config: AppConfig) throws {
         self.config = config
@@ -56,7 +58,7 @@ final class CaptureSession: NSObject {
 
     func start(completion: @escaping () -> Void) {
         guard assetWriter.status == .writing || assetWriter.status == .unknown else {
-            print("Error: AVAssetWriter status is \(assetWriter.status.rawValue)")
+            print("\(ui.error("Error:")) AVAssetWriter status is \(assetWriter.status.rawValue)")
             if let error = assetWriter.error {
                 print("AVAssetWriter error: \(error.localizedDescription)")
             }
@@ -66,12 +68,15 @@ final class CaptureSession: NSObject {
         assetWriter.startWriting()
 
         if assetWriter.status != .writing {
-            print("⚠️  Warning: AVAssetWriter status is \(assetWriter.status.rawValue), expected .writing (1)")
+            print("\(ui.warningSymbol)  Warning: AVAssetWriter status is \(assetWriter.status.rawValue), expected .writing (1)")
         }
 
         stream?.startCapture()
 
-        print("Recording started. Press Ctrl+C to stop...")
+        // Start the recording timer
+        ui.startRecordingTimer()
+
+        print("\(ui.info("Recording started.")) Press Ctrl+C to stop...")
         print("Output: \(outputURL.path)")
 
         // Store completion for auto-stop
@@ -88,31 +93,29 @@ final class CaptureSession: NSObject {
         fileSizeMonitorTimer?.cancel()
         fileSizeMonitorTimer = nil
 
-        print("Stopping capture...")
+        // Clear the status line before printing stop messages
+        ui.clearStatusLine()
+        print("\(ui.info("Stopping capture..."))")
 
         stream?.stopCapture { error in
             if let error = error {
-                print("Error stopping capture: \(error.localizedDescription)")
+                print("\(self.ui.error("Error stopping capture:")) \(error.localizedDescription)")
             }
 
-            print("Finalizing video file...")
-            print("Captured \(self.frameCount) video frames, \(self.audioSampleCount) total audio samples")
-            print("  - System audio samples: \(self.systemAudioSampleCount)")
-            print("  - Microphone samples: \(self.microphoneSampleCount)")
-            print("AVAssetWriter status before finish: \(self.assetWriter.status.rawValue)")
+            print("\(self.ui.info("Finalizing video file..."))")
 
             if self.systemAudioSampleCount == 0 && self.systemAudioInput != nil {
-                print("⚠️  No system audio samples - check if audio is playing during capture")
+                print("\(self.ui.warningSymbol)  No system audio samples - check if audio is playing during capture")
             }
 
             if self.microphoneSampleCount == 0 && self.microphoneInput != nil {
-                print("⚠️  No microphone samples - verify microphone permission in System Settings")
+                print("\(self.ui.warningSymbol)  No microphone samples - verify microphone permission in System Settings")
             }
 
             guard self.assetWriter.status == .writing else {
-                print("✗ Cannot finalize: AVAssetWriter is not in writing state")
+                print("\(self.ui.errorSymbol) Cannot finalize: AVAssetWriter is not in writing state")
                 if let error = self.assetWriter.error {
-                    print("Error: \(error.localizedDescription)")
+                    print("\(self.ui.error("Error:")) \(error.localizedDescription)")
                 }
                 completion()
                 return
@@ -123,13 +126,27 @@ final class CaptureSession: NSObject {
             self.microphoneInput?.markAsFinished()
 
             self.assetWriter.finishWriting {
-                print("AVAssetWriter status after finish: \(self.assetWriter.status.rawValue)")
                 if self.assetWriter.status == .completed {
-                    print("✓ Video file finalized successfully")
+                    // Get final file size
+                    var fileSizeBytes: Int64 = 0
+                    if let attributes = try? FileManager.default.attributesOfItem(atPath: self.outputURL.path),
+                       let size = attributes[.size] as? Int64 {
+                        fileSizeBytes = size
+                    }
+
+                    // Print final summary
+                    self.ui.printFinalSummary(
+                        duration: self.ui.getElapsedTime(),
+                        fileSizeBytes: fileSizeBytes,
+                        videoFrames: self.frameCount,
+                        systemAudioSamples: self.systemAudioSampleCount,
+                        microphoneSamples: self.microphoneSampleCount,
+                        outputPath: self.outputURL.path
+                    )
                 } else if self.assetWriter.status == .failed {
-                    print("✗ Video file finalization failed")
+                    print("\(self.ui.errorSymbol) Video file finalization failed")
                     if let error = self.assetWriter.error {
-                        print("Error: \(error.localizedDescription)")
+                        print("\(self.ui.error("Error:")) \(error.localizedDescription)")
                     }
                 }
                 completion()
@@ -149,20 +166,37 @@ final class CaptureSession: NSObject {
             // Read actual file size from disk (movieFragmentInterval enables periodic writes)
             do {
                 let attributes = try FileManager.default.attributesOfItem(atPath: self.outputURL.path)
-                guard let fileSize = attributes[.size] as? Int64, fileSize > 0 else { return }
+                guard let fileSize = attributes[.size] as? Int64, fileSize > 0 else {
+                    // File not ready yet, still show status
+                    self.ui.printRecordingStatus(
+                        elapsed: self.ui.getElapsedTime(),
+                        fileSizeBytes: 0,
+                        maxSizeBytes: maxSizeBytes,
+                        frameCount: self.frameCount
+                    )
+                    return
+                }
 
-                let fileSizeMB = Double(fileSize) / 1024.0 / 1024.0
+                // Update status display
+                self.ui.printRecordingStatus(
+                    elapsed: self.ui.getElapsedTime(),
+                    fileSizeBytes: fileSize,
+                    maxSizeBytes: maxSizeBytes,
+                    frameCount: self.frameCount
+                )
 
                 // Check if warning threshold reached
                 if !self.warningPlayed && fileSize >= warningThresholdBytes {
                     self.warningPlayed = true
-                    print("⚠️  Warning: File size reached \(warningThresholdPercent)% of limit (\(String(format: "%.1f", fileSizeMB)) MB)")
+                    self.ui.clearStatusLine()
+                    print("\(self.ui.warningSymbol)  Warning: File size reached \(warningThresholdPercent)% of limit (\(self.ui.formatBytes(fileSize)))")
                     self.playWarningSound()
                 }
 
                 // Check if max size reached
                 if fileSize >= maxSizeBytes {
-                    print("🛑 Maximum file size (\(maxSizeMB) MB) reached. Stopping recording...")
+                    self.ui.clearStatusLine()
+                    print("\(self.ui.stopSymbol) Maximum file size (\(maxSizeMB) MB) reached. Stopping recording...")
                     self.playStopSound()
                     self.fileSizeMonitorTimer?.cancel()
                     self.fileSizeMonitorTimer = nil
@@ -172,7 +206,13 @@ final class CaptureSession: NSObject {
                     }
                 }
             } catch {
-                // File might not exist yet or not readable, ignore
+                // File might not exist yet or not readable, still show status
+                self.ui.printRecordingStatus(
+                    elapsed: self.ui.getElapsedTime(),
+                    fileSizeBytes: 0,
+                    maxSizeBytes: maxSizeBytes,
+                    frameCount: self.frameCount
+                )
             }
         }
         timer.resume()
@@ -272,9 +312,9 @@ final class CaptureSession: NSObject {
                 if assetWriter.canAdd(input) {
                     assetWriter.add(input)
                     systemAudioInput = input
-                    print("✓ System audio input added to AVAssetWriter")
+                    print("\(ui.checkmark) System audio input added to AVAssetWriter")
                 } else {
-                    print("⚠️  Failed to add system audio input to AVAssetWriter")
+                    print("\(ui.warningSymbol)  Failed to add system audio input to AVAssetWriter")
                 }
             }
 
@@ -285,9 +325,9 @@ final class CaptureSession: NSObject {
                 if assetWriter.canAdd(input) {
                     assetWriter.add(input)
                     microphoneInput = input
-                    print("✓ Microphone input added to AVAssetWriter")
+                    print("\(ui.checkmark) Microphone input added to AVAssetWriter")
                 } else {
-                    print("⚠️  Failed to add microphone input to AVAssetWriter")
+                    print("\(ui.warningSymbol)  Failed to add microphone input to AVAssetWriter")
                 }
             }
         }
@@ -312,7 +352,7 @@ final class CaptureSession: NSObject {
             if audioCfg.system == true {
                 configuration.capturesAudio = true
                 configuration.excludesCurrentProcessAudio = false
-                print("✓ System audio capture enabled")
+                print("\(ui.checkmark) System audio capture enabled")
             }
 
             // Enable microphone if requested (macOS 15+)
@@ -322,14 +362,14 @@ final class CaptureSession: NSObject {
                     let micAuthorized = CaptureSession.requestMicrophonePermission()
                     if micAuthorized {
                         configuration.captureMicrophone = true
-                        print("✓ Microphone capture enabled")
+                        print("\(ui.checkmark) Microphone capture enabled")
                     } else {
-                        print("⚠️  Microphone permission denied - check System Settings > Privacy & Security > Microphone")
+                        print("\(ui.warningSymbol)  Microphone permission denied - check System Settings > Privacy & Security > Microphone")
                         print("   Grant microphone access to Terminal (or your app) and try again")
                     }
                 }
             } else if audioCfg.microphone == true {
-                print("⚠️  Microphone capture requires macOS 15+ (current: \(ProcessInfo.processInfo.operatingSystemVersionString))")
+                print("\(ui.warningSymbol)  Microphone capture requires macOS 15+ (current: \(ProcessInfo.processInfo.operatingSystemVersionString))")
             }
         }
 
@@ -346,9 +386,9 @@ final class CaptureSession: NSObject {
                     try stream?.addStreamOutput(self,
                                                type: .audio,
                                                sampleHandlerQueue: .global())
-                    print("✓ System audio stream output added")
+                    print("\(ui.checkmark) System audio stream output added")
                 } catch {
-                    print("⚠️  Failed to add system audio stream output: \(error)")
+                    print("\(ui.warningSymbol)  Failed to add system audio stream output: \(error)")
                 }
             }
 
@@ -359,9 +399,9 @@ final class CaptureSession: NSObject {
                         try stream?.addStreamOutput(self,
                                                    type: .microphone,
                                                    sampleHandlerQueue: .global())
-                        print("✓ Microphone stream output added")
+                        print("\(ui.checkmark) Microphone stream output added")
                     } catch {
-                        print("⚠️  Failed to add microphone stream output: \(error)")
+                        print("\(ui.warningSymbol)  Failed to add microphone stream output: \(error)")
                     }
                 }
             }
@@ -457,8 +497,9 @@ final class CaptureSession: NSObject {
 
 extension CaptureSession: SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("\n❌ Stream stopped with error: \(error.localizedDescription)")
-        print("\n⚠️  This is likely a permissions issue. Please:")
+        ui.clearStatusLine()
+        print("\n\(ui.errorSymbol) Stream stopped with error: \(error.localizedDescription)")
+        print("\n\(ui.warningSymbol)  This is likely a permissions issue. Please:")
         print("1. Open System Settings > Privacy & Security > Screen Recording")
         print("2. Add Terminal (or your terminal app) to the allowed apps")
         print("3. Restart the terminal and try again")
@@ -485,7 +526,7 @@ extension CaptureSession: SCStreamOutput {
             if firstFrameTime == nil {
                 firstFrameTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                 assetWriter.startSession(atSourceTime: firstFrameTime!)
-                print("✓ Started AVAssetWriter session at time: \(firstFrameTime!.seconds)")
+                print("\(ui.checkmark) Started AVAssetWriter session at time: \(firstFrameTime!.seconds)")
             }
 
             // Extract pixel buffer and append using adaptor
@@ -500,15 +541,15 @@ extension CaptureSession: SCStreamOutput {
                 frameCount += 1
 
                 if frameCount == 1 {
-                    print("✓ Receiving video frames")
+                    print("\(ui.checkmark) Receiving video frames")
                 }
             } else {
                 // Check for errors after appending
                 if assetWriter.status == .failed {
                     if frameCount == 0 || frameCount % 100 == 0 {
-                        print("❌ AVAssetWriter failed after frame \(frameCount)")
+                        print("\(ui.errorSymbol) AVAssetWriter failed after frame \(frameCount)")
                         if let error = assetWriter.error {
-                            print("Error: \(error)")
+                            print("\(ui.error("Error:")) \(error)")
                         }
                     }
                 }
@@ -527,7 +568,7 @@ extension CaptureSession: SCStreamOutput {
             systemAudioSampleCount += 1
 
             if systemAudioSampleCount == 1 {
-                print("✓ Receiving system audio samples")
+                print("\(ui.checkmark) Receiving system audio samples")
             }
 
         case .microphone:
@@ -544,7 +585,7 @@ extension CaptureSession: SCStreamOutput {
             microphoneSampleCount += 1
 
             if microphoneSampleCount == 1 {
-                print("✓ Receiving microphone samples")
+                print("\(ui.checkmark) Receiving microphone samples")
 
                 // Debug: print audio format info (commented out for cleaner output)
                 /*
@@ -580,9 +621,9 @@ extension CaptureSession: SCStreamOutput {
 
             // Check for errors periodically
             if assetWriter.status == .failed && audioSampleCount % 100 == 0 {
-                print("⚠️  AVAssetWriter failed during audio sample \(audioSampleCount)")
+                print("\(ui.warningSymbol)  AVAssetWriter failed during audio sample \(audioSampleCount)")
                 if let error = assetWriter.error {
-                    print("Error: \(error)")
+                    print("\(ui.error("Error:")) \(error)")
                 }
             }
         @unknown default:
