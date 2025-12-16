@@ -38,7 +38,7 @@ final class CaptureSession: NSObject {
     private var microphoneInput: AVAssetWriterInput?
     private(set) var outputURL: URL!
 
-    private var fileSizeMonitorTimer: Timer?
+    private var fileSizeMonitorTimer: DispatchSourceTimer?
     private var warningPlayed = false
     private var stopCompletion: (() -> Void)?
     private var frameCount = 0
@@ -85,7 +85,7 @@ final class CaptureSession: NSObject {
     }
 
     func stop(completion: @escaping () -> Void) {
-        fileSizeMonitorTimer?.invalidate()
+        fileSizeMonitorTimer?.cancel()
         fileSizeMonitorTimer = nil
 
         print("Stopping capture...")
@@ -141,37 +141,42 @@ final class CaptureSession: NSObject {
         let maxSizeBytes = Int64(maxSizeMB) * 1024 * 1024
         let warningThresholdBytes = Int64(Double(maxSizeBytes) * Double(warningThresholdPercent) / 100.0)
 
-        fileSizeMonitorTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = DispatchSource.makeTimerSource(queue: .global())
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
             guard let self = self else { return }
 
+            // Read actual file size from disk (movieFragmentInterval enables periodic writes)
             do {
                 let attributes = try FileManager.default.attributesOfItem(atPath: self.outputURL.path)
-                if let fileSize = attributes[.size] as? Int64 {
-                    let fileSizeMB = Double(fileSize) / 1024.0 / 1024.0
+                guard let fileSize = attributes[.size] as? Int64, fileSize > 0 else { return }
 
-                    // Check if warning threshold reached
-                    if !self.warningPlayed && fileSize >= warningThresholdBytes {
-                        self.warningPlayed = true
-                        print("⚠️  Warning: File size reached \(warningThresholdPercent)% of limit (\(String(format: "%.1f", fileSizeMB)) MB)")
-                        self.playWarningSound()
-                    }
+                let fileSizeMB = Double(fileSize) / 1024.0 / 1024.0
 
-                    // Check if max size reached
-                    if fileSize >= maxSizeBytes {
-                        print("🛑 Maximum file size (\(maxSizeMB) MB) reached. Stopping recording...")
-                        self.playStopSound()
-                        self.fileSizeMonitorTimer?.invalidate()
-                        self.fileSizeMonitorTimer = nil
+                // Check if warning threshold reached
+                if !self.warningPlayed && fileSize >= warningThresholdBytes {
+                    self.warningPlayed = true
+                    print("⚠️  Warning: File size reached \(warningThresholdPercent)% of limit (\(String(format: "%.1f", fileSizeMB)) MB)")
+                    self.playWarningSound()
+                }
 
-                        if let completion = self.stopCompletion {
-                            self.stop(completion: completion)
-                        }
+                // Check if max size reached
+                if fileSize >= maxSizeBytes {
+                    print("🛑 Maximum file size (\(maxSizeMB) MB) reached. Stopping recording...")
+                    self.playStopSound()
+                    self.fileSizeMonitorTimer?.cancel()
+                    self.fileSizeMonitorTimer = nil
+
+                    if let completion = self.stopCompletion {
+                        self.stop(completion: completion)
                     }
                 }
             } catch {
-                // File might not exist yet, ignore
+                // File might not exist yet or not readable, ignore
             }
         }
+        timer.resume()
+        fileSizeMonitorTimer = timer
     }
 
     private func playWarningSound() {
@@ -181,8 +186,11 @@ final class CaptureSession: NSObject {
             return
         }
 
-        if let sound = NSSound(contentsOfFile: soundPath, byReference: true) {
-            sound.play()
+        // Play asynchronously to avoid blocking the timer
+        DispatchQueue.global().async {
+            if let sound = NSSound(contentsOfFile: soundPath, byReference: true) {
+                sound.play()
+            }
         }
     }
 
@@ -193,10 +201,11 @@ final class CaptureSession: NSObject {
             return
         }
 
+        // Play sound on background thread (NSSound works from any thread for simple playback)
         if let sound = NSSound(contentsOfFile: soundPath, byReference: true) {
             sound.play()
-            // Give sound time to play before stopping
-            Thread.sleep(forTimeInterval: 0.5)
+            // Give sound time to start playing
+            Thread.sleep(forTimeInterval: 0.3)
         }
     }
 
@@ -207,6 +216,9 @@ final class CaptureSession: NSObject {
         let fileType: AVFileType = (config.output.container == "mp4") ? .mp4 : .mov
 
         assetWriter = try AVAssetWriter(outputURL: url, fileType: fileType)
+
+        // Write movie fragments every 10 seconds so file size is updated on disk
+        assetWriter.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 1)
 
         // Resolve preset + video config
         let resolved = PresetResolver.resolve(config: config)
@@ -452,7 +464,7 @@ extension CaptureSession: SCStreamDelegate {
         print("3. Restart the terminal and try again")
 
         if let completion = stopCompletion {
-            fileSizeMonitorTimer?.invalidate()
+            fileSizeMonitorTimer?.cancel()
             completion()
         }
     }

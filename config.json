@@ -20,7 +20,7 @@
     "container": "mp4"
   },
   "limits": {
-    "max_file_size_mb": 500,
+    "max_file_size_mb": 10,
     "warning_threshold_percent": 75
   },
   "notifications": {

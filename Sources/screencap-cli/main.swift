@@ -48,8 +48,10 @@ do {
     sigtermSource.resume()
 
     session.start {
-        // If start completes without signals, we shouldn't call leave
-        // The signal handlers will call leave when triggered
+        // Called when recording ends (either by signal or auto-stop from file size limit)
+        sigintSource.cancel()
+        sigtermSource.cancel()
+        group.leave()
     }
 
     group.wait()
