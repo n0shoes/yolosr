@@ -25,3 +25,18 @@
 - `microphoneInput` - receives `.microphone` stream samples
 
 **Result**: Both audio sources can now be captured simultaneously. Output video contains two audio tracks (common for screen recordings - allows independent volume adjustment in post-production).
+
+## 2025-12-16 18:55 - Swift 6 / macOS 15 Platform Investigation
+
+**Goal**: Update to swift-tools-version 6.0 and `.macOS(.v15)` platform requirement.
+
+**Attempts**:
+1. Updated Package.swift to Swift 6.0 / macOS 15 - caused trace trap on Ctrl+C
+2. Added `@unchecked Sendable` to CaptureSession - still crashed
+3. Added serial isolation queue for thread-safe state access - still crashed
+4. Added `-strict-concurrency=minimal` flag - still crashed
+5. Reverted to Swift 5.10 with isolation queue changes - worked fine
+
+**Conclusion**: The crash is in Swift 6's runtime itself, not our concurrency code. Signal handlers with DispatchSource appear incompatible with Swift 6's concurrency runtime. Staying on Swift 5.10 - the `#available` checks handle macOS 15 features at runtime anyway.
+
+**Decision**: Discarded feature branch. Isolation queue adds complexity without benefit on Swift 5.10.
